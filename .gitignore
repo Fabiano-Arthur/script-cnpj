@@ -1,0 +1,21 @@
+# Saídas do pipeline
+downloads/
+cnpj_*/
+*.db
+*.db-wal
+*.db-shm
+*.tar.gz
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE / SO
+.vscode/
+.idea/
+.DS_Store
