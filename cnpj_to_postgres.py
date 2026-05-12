@@ -33,6 +33,7 @@ from cnpj_pipeline import (
     extract_tar_gz,
     find_csvs,
     last_closed_month,
+    resolve_output_dir,
     unzip_inner_zips,
     validate_competencia,
 )
@@ -214,8 +215,12 @@ def run(args: argparse.Namespace) -> None:
             sys.exit(2)
         log.info("Usando CSVs já extraídos em %s", csv_dir)
     else:
-        csv_dir = args.work_dir or Path(f"cnpj_{slug}")
-        tar_file = download_competencia(competencia, args.download_dir)
+        base = resolve_output_dir(args)
+        download_dir = args.download_dir or (base / "downloads")
+        csv_dir = args.work_dir or (base / "extracted" / f"cnpj_{slug}")
+        for d in (download_dir, csv_dir.parent):
+            d.mkdir(parents=True, exist_ok=True)
+        tar_file = download_competencia(competencia, download_dir)
         extract_tar_gz(tar_file, csv_dir)
         unzip_inner_zips(csv_dir)
 
@@ -270,8 +275,15 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Pular download/extração e usar CSVs deste diretório.",
     )
-    p.add_argument("--download-dir", type=Path, default=Path("downloads"))
-    p.add_argument("--work-dir", type=Path, help="Onde extrair CSVs (default: cnpj_<comp>/).")
+    p.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Pasta base onde criar downloads/ e extracted/<comp>/. "
+             "Se omitido, o script pergunta interativamente.",
+    )
+    p.add_argument("--download-dir", type=Path, help="Sobrepõe a subpasta de downloads.")
+    p.add_argument("--work-dir", type=Path, help="Sobrepõe a subpasta de CSVs extraídos.")
+    p.add_argument("--no-prompt", action="store_true", help="Não pergunta nada; usa o diretório atual como base.")
     p.add_argument(
         "--logged",
         action="store_true",
