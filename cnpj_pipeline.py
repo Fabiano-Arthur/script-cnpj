@@ -383,11 +383,37 @@ def parse_args() -> argparse.Namespace:
         help="Carregar apenas estas tabelas.",
     )
     p.add_argument("--keep-cache", action="store_true", help="Mantém tar.gz e CSVs extraídos.")
-    p.add_argument("--download-dir", type=Path, default=Path("downloads"))
-    p.add_argument("--work-dir", type=Path, help="Onde extrair CSVs (default: cnpj_<comp>/).")
-    p.add_argument("--db", type=Path, help="Caminho do .db (default: cnpj_<comp>.db).")
+    p.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Pasta base onde tudo será criado (downloads/, extracted/<comp>/, <comp>.db). "
+             "Se omitido, o script pergunta interativamente.",
+    )
+    p.add_argument("--download-dir", type=Path, help="Sobrepõe a subpasta de downloads.")
+    p.add_argument("--work-dir", type=Path, help="Sobrepõe a subpasta de CSVs extraídos.")
+    p.add_argument("--db", type=Path, help="Sobrepõe o caminho do .db.")
+    p.add_argument("--no-prompt", action="store_true", help="Não pergunta nada; usa o diretório atual como base.")
     p.add_argument("-v", "--verbose", action="store_true")
     return p.parse_args()
+
+
+def resolve_output_dir(args: argparse.Namespace) -> Path:
+    """Resolve a pasta base a partir do flag, prompt ou default."""
+    if args.output_dir:
+        base = args.output_dir
+    elif args.no_prompt or not sys.stdin.isatty():
+        base = Path.cwd()
+    else:
+        default = Path.cwd()
+        try:
+            answer = input(f"Em qual pasta salvar os dados? [{default}]: ").strip()
+        except EOFError:
+            answer = ""
+        base = Path(answer).expanduser() if answer else default
+    base = base.expanduser().resolve()
+    base.mkdir(parents=True, exist_ok=True)
+    log.info("Pasta base: %s", base)
+    return base
 
 
 def main() -> int:
@@ -403,15 +429,20 @@ def main() -> int:
         log.info("Nenhuma competência informada. Usando último mês fechado: %s", competencia)
 
     slug = competencia.replace("-", "_")
-    work_dir = args.work_dir or Path(f"cnpj_{slug}")
-    db_path = args.db or Path(f"cnpj_{slug}.db")
+    base = resolve_output_dir(args)
+    download_dir = args.download_dir or (base / "downloads")
+    work_dir = args.work_dir or (base / "extracted" / f"cnpj_{slug}")
+    db_path = args.db or (base / f"cnpj_{slug}.db")
+
+    for d in (download_dir, work_dir.parent):
+        d.mkdir(parents=True, exist_ok=True)
 
     try:
         run_pipeline(
             ano_mes=competencia,
             only=args.only,
             keep_cache=args.keep_cache,
-            download_dir=args.download_dir,
+            download_dir=download_dir,
             work_dir=work_dir,
             db_path=db_path,
         )
