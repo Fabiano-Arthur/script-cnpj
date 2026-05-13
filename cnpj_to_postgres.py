@@ -38,6 +38,21 @@ from cnpj_pipeline import (
     validate_competencia,
 )
 
+
+def find_existing_archive(download_dir: Path, ano_mes: str) -> Path | None:
+    """Procura um arquivo já baixado pra esta competência, em qualquer
+    nome plausível (cnpj_<ano_mes>.tar.gz, dados.tar.gz, .zip etc.)."""
+    candidates = [
+        download_dir / f"cnpj_{ano_mes}.tar.gz",
+        download_dir / f"cnpj_{ano_mes}.zip",
+        download_dir / "dados.tar.gz",
+        download_dir / "dados.zip",
+    ]
+    for p in candidates:
+        if p.exists() and p.stat().st_size > 100 * 1024 * 1024:  # >100MB pra evitar HTML de erro
+            return p
+    return None
+
 BATCH_FLUSH = 50_000  # linhas entre logs de progresso
 
 INDEXES = [
@@ -220,7 +235,24 @@ def run(args: argparse.Namespace) -> None:
         csv_dir = args.work_dir or (base / "extracted" / f"cnpj_{slug}")
         for d in (download_dir, csv_dir.parent):
             d.mkdir(parents=True, exist_ok=True)
-        tar_file = download_competencia(competencia, download_dir)
+
+        existing = find_existing_archive(download_dir, competencia)
+        if args.skip_download:
+            if not existing:
+                log.error(
+                    "Nenhum arquivo encontrado em %s para %s. "
+                    "Rode sem --skip-download para baixar.",
+                    download_dir, competencia,
+                )
+                sys.exit(2)
+            log.info("--skip-download: usando arquivo existente %s", existing.name)
+            tar_file = existing
+        elif existing:
+            log.info("Arquivo já presente em %s, pulando download.", existing.name)
+            tar_file = existing
+        else:
+            tar_file = download_competencia(competencia, download_dir)
+
         extract_tar_gz(tar_file, csv_dir)
         unzip_inner_zips(csv_dir)
 
@@ -274,6 +306,11 @@ def parse_args() -> argparse.Namespace:
         "--csv-dir",
         type=Path,
         help="Pular download/extração e usar CSVs deste diretório.",
+    )
+    p.add_argument(
+        "--skip-download",
+        action="store_true",
+        help="Não baixar nada; usar o arquivo já existente em --download-dir / output-dir/downloads.",
     )
     p.add_argument(
         "--output-dir",
