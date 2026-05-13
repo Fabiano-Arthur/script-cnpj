@@ -211,15 +211,43 @@ def download_competencia(ano_mes: str, output_dir: Path) -> Path:
 # EXTRAÇÃO
 # ==============================
 
+def _detect_format(path: Path) -> str:
+    """Detecta o formato do arquivo pelos primeiros bytes (magic number).
+    Retorna 'gzip', 'zip' ou 'unknown'."""
+    with open(path, "rb") as f:
+        magic = f.read(4)
+    if magic[:2] == b"\x1f\x8b":
+        return "gzip"
+    if magic[:2] == b"PK":
+        return "zip"
+    return "unknown"
+
+
 def extract_tar_gz(tar_path: Path, extract_to: Path) -> None:
+    """Extrai o pacote baixado. Apesar do nome, aceita tanto tar.gz quanto
+    zip — o Nextcloud da Receita às vezes serve um, às vezes o outro."""
     log.info("Extraindo %s", tar_path.name)
     extract_to.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(tar_path, "r:gz") as tar:
-        # filter="data" (Python 3.12+) bloqueia path traversal e links absolutos.
-        try:
-            tar.extractall(path=extract_to, filter="data")
-        except TypeError:
-            tar.extractall(path=extract_to)
+
+    fmt = _detect_format(tar_path)
+    if fmt == "gzip":
+        with tarfile.open(tar_path, "r:gz") as tar:
+            # filter="data" (Python 3.12+) bloqueia path traversal e links absolutos.
+            try:
+                tar.extractall(path=extract_to, filter="data")
+            except TypeError:
+                tar.extractall(path=extract_to)
+    elif fmt == "zip":
+        with zipfile.ZipFile(tar_path, "r") as z:
+            z.extractall(extract_to)
+    else:
+        # Provavelmente uma página HTML de erro do servidor.
+        with open(tar_path, "rb") as f:
+            preview = f.read(200)
+        raise RuntimeError(
+            f"Formato desconhecido em {tar_path.name}. Primeiros bytes: {preview[:80]!r}. "
+            "Apague o arquivo e baixe de novo."
+        )
 
 
 def unzip_inner_zips(base_dir: Path) -> None:

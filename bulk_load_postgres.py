@@ -38,6 +38,7 @@ from psycopg import sql
 from cnpj_pipeline import (
     LOOKUP_TABLES,
     MAIN_TABLES,
+    _detect_format,
     find_csvs,
     resolve_output_dir,
 )
@@ -142,12 +143,25 @@ def lookup_is_empty(conn: psycopg.Connection, schema: str, table: str) -> bool:
 # ==============================
 
 def extract_archive(archive: Path, dest: Path) -> None:
+    """Extrai dados.tar.gz para dest. Detecta automaticamente se o arquivo
+    é tar.gz ou zip (o Nextcloud da Receita varia entre os dois formatos)."""
     log.info("  extraindo %s", archive.name)
-    with tarfile.open(archive, "r:gz") as tar:
-        try:
-            tar.extractall(path=dest, filter="data")
-        except TypeError:
-            tar.extractall(path=dest)
+    fmt = _detect_format(archive)
+    if fmt == "gzip":
+        with tarfile.open(archive, "r:gz") as tar:
+            try:
+                tar.extractall(path=dest, filter="data")
+            except TypeError:
+                tar.extractall(path=dest)
+    elif fmt == "zip":
+        with zipfile.ZipFile(archive, "r") as z:
+            z.extractall(dest)
+    else:
+        raise RuntimeError(
+            f"Formato desconhecido em {archive.name}. "
+            "Pode estar corrompido — apague a pasta e rode sync_months.py de novo."
+        )
+
     for zf in list(dest.rglob("*.zip")):
         with zipfile.ZipFile(zf, "r") as z:
             z.extractall(zf.parent)
